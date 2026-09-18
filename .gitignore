@@ -16,13 +16,16 @@ prisma/data_backup.json
 *.db
 *.db-journal
 
-# Environment files
+# Environment & Secret files
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+.env*.local
 !.env.example
+*.pem
+*.key
+*.cert
+*.crt
+*credentials*.json
 
 # Logs
 npm-debug.log*
