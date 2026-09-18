@@ -1,0 +1,168 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id                 String        @id @default(cuid())
+  name               String
+  email              String        @unique
+  password           String
+  role               String        @default("DONOR") // DONOR, RECEIVER, ADMIN, VOLUNTEER
+  location           String?
+  latitude           Float?
+  longitude          Float?
+  phone              String?
+  acceptedCategories String?       @default("VEG,NON_VEG,RAW,COOKED") // Comma-separated normalized categories
+  dailyCapacity      Int?          @default(100) // Servings intake capacity
+  isAvailable        Boolean       @default(true) // Whether receiver is actively accepting donations
+  serviceRadiusKm    Float?        @default(15.0) // Service area radius in km
+  locationUpdatedAt  DateTime?
+  createdAt          DateTime      @default(now())
+
+  foodListings     FoodListing[]
+  claims           Claim[]       @relation("ReceiverClaims")
+  driverDeliveries Claim[]       @relation("DriverClaims")
+  notifications    Notification[]
+  auditLogs        AuditLog[]    @relation("ActorAuditLogs")
+  reportedIncidents Incident[]   @relation("ReportedIncidents")
+  targetedIncidents Incident[]   @relation("TargetedIncidents")
+  resolvedIncidents Incident[]   @relation("ResolvedIncidents")
+
+  @@index([role, isAvailable])
+}
+
+model FoodListing {
+  id                    String   @id @default(cuid())
+  title                 String
+  description           String?
+  quantity              String
+  expiryTime            DateTime
+  foodType              String   // VEG, NON_VEG, RAW, COOKED
+  status                String   @default("AVAILABLE") // AVAILABLE, CLAIMED, DELIVERED, COMPLETED
+  donorId               String
+  donor                 User     @relation(fields: [donorId], references: [id], onDelete: Cascade)
+  locationAddress       String
+  latitude              Float?
+  longitude             Float?
+  imageUrl              String?
+  temperatureControl    String   @default("ROOM_TEMP") // ROOM_TEMP, REFRIGERATED, FROZEN
+  prepTimestamp         DateTime @default(now())
+  safetyChecklistPassed Boolean  @default(true)
+  createdAt             DateTime @default(now())
+
+  claims                Claim[]
+  incidents             Incident[]
+
+  @@index([donorId])
+  @@index([status])
+  @@index([expiryTime])
+  @@index([status, expiryTime])
+}
+
+model Claim {
+  id                      String       @id @default(cuid())
+  foodListingId           String
+  foodListing             FoodListing  @relation(fields: [foodListingId], references: [id], onDelete: Cascade)
+  receiverId              String
+  receiver                User         @relation("ReceiverClaims", fields: [receiverId], references: [id], onDelete: Cascade)
+  qrCodeSecret            String?      @unique
+  deliveryStatus          String       @default("UNASSIGNED") // UNASSIGNED, DRIVER_ASSIGNED, PICKUP_STARTED, PICKED_UP, IN_TRANSIT, DELIVERED
+  driverId                String?
+  driver                  User?        @relation("DriverClaims", fields: [driverId], references: [id], onDelete: SetNull)
+  assignedAt              DateTime?
+  pickupStartedAt         DateTime?
+  pickedUpAt              DateTime?
+  inTransitAt             DateTime?
+  deliveredAt             DateTime?
+  driverLatitude          Float?
+  driverLongitude         Float?
+  driverLocationUpdatedAt DateTime?
+  status                  String       @default("PENDING") // PENDING, APPROVED, COMPLETED
+  createdAt               DateTime     @default(now())
+
+  incidents               Incident[]
+
+  @@index([receiverId])
+  @@index([foodListingId])
+  @@index([driverId])
+  @@index([deliveryStatus])
+  @@index([status])
+  @@index([receiverId, status])
+}
+
+model Notification {
+  id            String       @id @default(cuid())
+  userId        String
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventType     String       // DRIVER_ASSIGNED, PICKUP_STARTED, FOOD_PICKED_UP, DELIVERY_STARTED, DELIVERY_COMPLETED, DELIVERY_DELAYED, URGENT_DELIVERY, DRIVER_REASSIGNED
+  title         String
+  message       String
+  claimId       String?
+  foodListingId String?
+  isRead        Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation("ActorAuditLogs", fields: [actorId], references: [id], onDelete: SetNull)
+  action     String   // DONATION_CREATED, DONATION_CANCELLED, CLAIM_CREATED, CLAIM_APPROVED, DRIVER_ASSIGNED, DELIVERY_STATUS_CHANGED, QR_VERIFIED, INCIDENT_CREATED, INCIDENT_RESOLVED, ADMIN_ACTION
+  entityType String   // FOOD_LISTING, CLAIM, USER, INCIDENT, SYSTEM
+  entityId   String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model Incident {
+  id              String       @id @default(cuid())
+  reporterId      String
+  reporter        User         @relation("ReportedIncidents", fields: [reporterId], references: [id], onDelete: Cascade)
+  reportedUserId  String?
+  reportedUser    User?        @relation("TargetedIncidents", fields: [reportedUserId], references: [id], onDelete: SetNull)
+  foodListingId   String?
+  foodListing     FoodListing? @relation(fields: [foodListingId], references: [id], onDelete: SetNull)
+  claimId         String?
+  claim           Claim?       @relation(fields: [claimId], references: [id], onDelete: SetNull)
+  category        String       // SPOILED_FOOD, NO_SHOW, LATE_DELIVERY, WRONG_QUANTITY, PACKAGING_DEFECT, UNPROFESSIONAL_BEHAVIOR, OTHER
+  title           String
+  description     String
+  evidenceUrl     String?
+  status          String       @default("OPEN") // OPEN, UNDER_REVIEW, RESOLVED, DISMISSED
+  resolutionNotes String?
+  resolvedById    String?
+  resolvedBy      User?        @relation("ResolvedIncidents", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolvedAt      DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([reporterId])
+  @@index([reportedUserId])
+  @@index([foodListingId])
+  @@index([claimId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model RateLimit {
+  key       String   @id
+  points    Int      @default(1)
+  expireAt  DateTime
+
+  @@index([expireAt])
+}
+
